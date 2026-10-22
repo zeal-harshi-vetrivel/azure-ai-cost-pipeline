@@ -38,6 +38,73 @@ and vote changes in feedback. Tests check the pipeline finds each one.
 **Reading the value numbers:** LLM token costs are tiny next to staff time, so value-to-cost ratios come
 out large. Cost per outcome and its trend are the more honest measures.
 
+## How the synthetic data is made
+
+`src/aicost/simulator.py` plays four outside systems and writes their files into the landing volume in
+the formats those systems use. `src/aicost/settings.py` holds the apps, models, prices and anomaly
+switches. There is no real traffic or real spend anywhere in this project.
+
+**Real vs invented**
+
+| Real (copied from Azure) | Invented (my assumptions) |
+| --- | --- |
+| Field names and file layouts: the APIM `ApiManagementGatewayLlmLog` table, the diagnostic-settings archive path, the FOCUS 1.0r2 export (CSV + Gzip, manifest, "create new report") | The organisation: 6 apps, 6 teams, the users (`userNNNN.<app>@example.com`) and how many each app has |
+| Token prices: Azure Retail Prices API, `eastus2`, Global, captured 2026-10-22 | Request volume, growth, time-of-day shape, token counts, latency, error and throttle rates |
+| Meter names and the model list (gpt-4o, gpt-4o-mini, gpt-4.1-mini, gpt-4.1, text-embedding-3-small) | Feedback rates, minutes saved per outcome, the $55/hour rate |
+| | Non-AI cost lines (API Management, Storage, AI Search), subscription ID, billing account, resource names |
+
+**How a day is generated** (`generate_requests`)
+
+1. Request count for the day = 3,000 × adoption growth (+1.2% per day since the start date) × weekday
+   factor (weekends 30%) × noise (normal, 5% spread). Scalable with `--volume-multiplier`.
+2. Each request is assigned an app by weight, then a model by that app's model mix (`settings.APPS`).
+3. Arrival time follows an hourly profile that peaks 8am–6pm Central.
+4. Prompt and completion tokens are log-normal around a per-app median (`TOKEN_PROFILE`). Embedding calls
+   have no completion. Cached prompt tokens exist only for gpt-4.1-mini (0–60% of the prompt).
+5. 1.5% of calls are throttled (429) and 0.3% fail (500). Failed calls carry no tokens and are not billed.
+6. Latency is a formula on token counts (faster for mini models and embeddings) with random noise.
+
+Each day uses its own random generator seeded from `seed + date`, so a given configuration always
+produces the same files.
+
+**What gets written** (all from the same requests, so the sources agree with each other)
+
+| Folder | Source it imitates | Notes |
+| --- | --- | --- |
+| `gateway_logs/` | APIM LLM logs archived to storage | One `PT1H.json` per hour, JSON lines |
+| `feedback/` | Apps' thumbs up/down events | 7% of successful chat calls get a rating; 5% of those later change their vote (same id, later event) |
+| `outcomes/<app_id>/` | Owners' uploaded business outcomes (CSV) | Each outcome links to several request ids; US dates; finance uses Title_Case headers |
+| `cost_exports/` | Azure Cost Management FOCUS daily export | Month-to-date through yesterday, one run per day; on days 1–5 an extra run restates the prior month with late charges |
+| `reference/` | App list and price card | The price card deliberately omits gpt-4.1 |
+
+**Why gateway and bill reconcile.** Cost is computed as tokens × the real retail price for the meter,
+from the same requests that become gateway logs. So the two agree, except where `settings.ANOMALIES`
+breaks them on purpose (unpriced model, shadow usage on a sandbox resource, duplicate/late/corrupt log
+records, schema change, restated charges). That is what the tests check against.
+
+**Ground truth.** After each day the simulator records what a perfect pipeline should find (unique
+requests, duplicates, billed cost split into priced / unpriced / shadow) in `_simulator/state.json`
+under the landing root. The tests compare pipeline output with it.
+
+**Labelling.** Every gateway and feedback record carries `"_synthetic": true`, each export manifest has
+`"synthetic": true`, the landing root gets a `SYNTHETIC_DATA.md`, names such as `ai-platform (synthetic)`
+are used, and the table comments in the pipeline start with `SYNTHETIC.`
+
+**Running it**
+
+```
+cd src && python -m aicost.simulator --root ./landing --through 2026-10-21 --reset
+```
+Or run the `01_simulate` notebook on Databricks (backfill, or advance one day per run). State is kept, so
+repeat runs continue where the last stopped. Options: `--requests-per-day`, `--volume-multiplier`,
+`--skew-app-share` (send most traffic to one app, for the Spark skew lab), `--reset`. The seed is a
+field on `Config` (default 7), not a command-line flag.
+
+**Limits of the simulation.** The distributions are my choices, not measured from real traffic. Real
+logs will have more variety, odd records and field-casing differences than this generator produces, and
+real value-per-request is not known. Results from this data show that the pipeline works, not what any
+organisation's AI spend looks like.
+
 ## Repo layout
 
 | Path | What it is |
