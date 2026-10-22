@@ -1,0 +1,20 @@
+# The Lakeflow (Spark Declarative) Pipeline: bronze -> silver -> gold, serverless.
+resources:
+  pipelines:
+    ai_cost_pipeline:
+      name: ai-cost-value-pipeline
+      catalog: ${var.catalog}
+      schema: bronze                  # default schema; tables name their own schema (bronze/silver/gold)
+      serverless: true
+      channel: CURRENT
+      root_path: ../src/pipeline      # on sys.path, so transformations can `from utilities import ...`
+      libraries:
+        - glob:
+            include: ../src/pipeline/transformations/**
+      configuration:
+        aicost.catalog: ${var.catalog}
+        aicost.landing_root: /Volumes/${var.catalog}/landing/files
+        aicost.use_file_events: ${var.use_file_events}
+        aicost.gateway_resource: aoai-zeal-prod-eus2
+        aicost.loaded_hourly_rate: "55"            # assumption used for the value estimate
+        aicost.recon_tolerance_pct: "0.05"

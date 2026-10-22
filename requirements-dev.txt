@@ -1,0 +1,6 @@
+# Local tests only (Databricks provides these at runtime). PySpark needs Java 17+.
+pyspark>=4.0,<4.1
+pytest>=8
+pandas>=2.2
+numpy>=1.26
+pyarrow>=15

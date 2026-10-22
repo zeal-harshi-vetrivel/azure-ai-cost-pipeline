@@ -1,0 +1,45 @@
+# Databricks Asset Bundle for the AI cost & value pipeline.
+#
+#   databricks bundle validate -t dev
+#   databricks bundle deploy   -t dev
+#   databricks bundle run      -t dev ai_cost_daily        # simulate -> prices -> reference -> pipeline -> views
+#
+# dev and prod differ only by variables: catalog name, schedule paused or not, and (later) who the job
+# runs as. Same code, same definitions; promote by deploying the same commit to -t prod.
+
+bundle:
+  name: ai-cost-value-pipeline
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog for this environment
+  alert_email:
+    description: Who gets an email when a run fails
+    default: you@example.com
+  schedule_pause:
+    description: PAUSED or UNPAUSED for the daily schedule
+    default: PAUSED
+  use_file_events:
+    description: '"true" once file events are enabled on the landing external location; "false" = directory listing'
+    default: "false"
+
+targets:
+  dev:
+    mode: development          # prefixes resource names with [dev <you>], pauses schedules, deploys to your user folder
+    default: true
+    variables:
+      catalog: aicost_dev
+    # workspace:
+    #   host: https://adb-<id>.<n>.azuredatabricks.net
+
+  prod:
+    mode: production
+    variables:
+      catalog: aicost
+      schedule_pause: UNPAUSED
+    # Phase 3 (governance): run as a service principal instead of you.
+    # run_as:
+    #   service_principal_name: <application-id>

@@ -1,0 +1,20 @@
+# Never commit data, real or simulated. Real cost exports contain company spend and subscription IDs.
+data/
+landing/
+exports/
+*.csv
+*.csv.gz
+*.parquet
+*.zip
+manifest*.json
+PT1H.json
+
+# Local tooling
+.databricks/
+__pycache__/
+.pytest_cache/
+.venv/
+spark-warehouse/
+metastore_db/
+derby.log
+.DS_Store

@@ -1,0 +1,43 @@
+# Daily job (Phase 1 shape). Phase 2 adds the condition task, for-each backfill, file-arrival and
+# table-update triggers. All tasks run on serverless jobs compute (no cluster config needed).
+resources:
+  jobs:
+    ai_cost_daily:
+      name: ai-cost-daily
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"      # 6am Central, after Azure's overnight export
+        timezone_id: America/Chicago
+        pause_status: ${var.schedule_pause}
+      email_notifications:
+        on_failure: ["${var.alert_email}"]
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+      tasks:
+        - task_key: simulate
+          notebook_task:
+            notebook_path: ../src/notebooks/01_simulate.py
+            base_parameters: {advance_days: "1"}
+
+        - task_key: refresh_prices
+          notebook_task:
+            notebook_path: ../src/notebooks/02_refresh_prices.py
+          max_retries: 3                           # public API: transient failures are expected
+          min_retry_interval_millis: 120000
+          retry_on_timeout: true
+          timeout_seconds: 900
+
+        - task_key: load_reference
+          depends_on: [{task_key: refresh_prices}]
+          notebook_task:
+            notebook_path: ../src/notebooks/03_load_reference.py
+
+        - task_key: run_pipeline
+          depends_on: [{task_key: simulate}, {task_key: load_reference}]
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.ai_cost_pipeline.id}
+
+        - task_key: publish_views
+          depends_on: [{task_key: run_pipeline}]
+          notebook_task:
+            notebook_path: ../src/notebooks/04_gold_views.py
